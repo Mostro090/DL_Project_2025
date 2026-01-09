@@ -1,7 +1,6 @@
 pandas
 scikit-learn
 groq
-torch
 transformers
 datasets
 peft

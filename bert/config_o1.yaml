@@ -3,7 +3,7 @@ seed: 42
 data:
   train_jsonl: "train.jsonl"
   val_jsonl: "val.jsonl"
-  tokenized_dir: "../data/tokenized"
+  tokenized_dir: "../data/tokenized/o1"
 
 model:
   model_id: "answerdotai/ModernBERT-base"
@@ -18,7 +18,7 @@ peft:
   target_modules: ["Wqkv", "Wo"]
 
 training:
-  output_dir: "../results/runs/modernbert_ac_lora_mixbatch"
+  output_dir: "../results/runs/modernbert_o1"
   epochs: 3
   
   batch_size: 16

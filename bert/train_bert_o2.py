@@ -24,25 +24,18 @@ def set_seed(seed: int):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-# --- COLLATOR CUSTOM PER GESTIRE BATCH MISTI ---
 class SmartMixCollator:
     def __init__(self, tokenizer):
         self.tokenizer = tokenizer
 
     def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Separa gli esempi Task A da quelli Task B e li padda separatamente.
-        Ritorna un dizionario con chiavi separate per i due task.
-        """
         batch_a = [f for f in features if f["task"] == "A"]
         batch_b = [f for f in features if f["task"] == "B"]
 
         out = {}
 
-        # --- Process Task A ---
         if batch_a:
             input_ids = [f["input_ids"] for f in batch_a]
-            # Usa il pad di tokenizer
             padded = self.tokenizer.pad(
                 {"input_ids": input_ids}, padding=True, return_tensors="pt"
             )
@@ -50,9 +43,7 @@ class SmartMixCollator:
             out["attention_mask_a"] = padded["attention_mask"]
             out["label_a"] = torch.tensor([f["label_a"] for f in batch_a], dtype=torch.float)
 
-        # --- Process Task B (Siamese) ---
         if batch_b:
-            # 1. Sarcastic branch
             ids_sarc = [f["input_ids_sarc"] for f in batch_b]
             pad_sarc = self.tokenizer.pad(
                 {"input_ids": ids_sarc}, padding=True, return_tensors="pt"
@@ -60,7 +51,6 @@ class SmartMixCollator:
             out["input_ids_b_sarc"] = pad_sarc["input_ids"]
             out["mask_b_sarc"] = pad_sarc["attention_mask"]
 
-            # 2. Rephrase branch
             ids_reph = [f["input_ids_reph"] for f in batch_b]
             pad_reph = self.tokenizer.pad(
                 {"input_ids": ids_reph}, padding=True, return_tensors="pt"
@@ -68,7 +58,6 @@ class SmartMixCollator:
             out["input_ids_b_reph"] = pad_reph["input_ids"]
             out["mask_b_reph"] = pad_reph["attention_mask"]
             
-            # Label B (utile solo per metriche legacy, non per la loss)
             out["label_b"] = torch.tensor([f["label_b"] for f in batch_b], dtype=torch.long)
 
         return out
@@ -92,10 +81,6 @@ class SarcasmModel(nn.Module):
             self.encoder = base
 
         hidden = self.encoder.config.hidden_size
-        
-        # UNICA TESTA: Predice uno "score di sarcasmo"
-        # Task A: sigmoid(score) -> probabilità
-        # Task B: score(sarcastic) > score(rephrase)
         self.head_score = nn.Linear(hidden, 1)
 
     def get_cls(self, input_ids, attention_mask):
@@ -134,7 +119,7 @@ class MixedABBatchSampler:
         for start in range(0, len(a), self.half):
             a_batch = a[start:start + self.half].tolist()
             if len(a_batch) < self.half:
-                break # Drop last incomplete
+                break 
 
             if b_len == 0: continue
 
@@ -156,11 +141,8 @@ class MixedABBatchSampler:
 def evaluate(model: SarcasmModel, dlA: DataLoader, dlB: DataLoader, device: torch.device) -> Dict[str, float]:
     model.eval()
 
-    # --- TASK A: Dynamic Threshold ---
     ys, probs = [], []
     for batch in dlA:
-        # Nota: dlA restituisce batch processati dallo SmartCollator
-        # Controlliamo se ci sono dati A (dovrebbero esserci sempre in dlA)
         if "input_ids_a" not in batch: continue
         
         ids = batch["input_ids_a"].to(device)
@@ -178,7 +160,6 @@ def evaluate(model: SarcasmModel, dlA: DataLoader, dlB: DataLoader, device: torc
         ys = np.concatenate(ys)
         probs = np.concatenate(probs)
         
-        # Calcolo Soglia Ottimale
         precisions, recalls, thresholds = precision_recall_curve(ys, probs)
         f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-9)
         f1_scores = np.nan_to_num(f1_scores)
@@ -188,7 +169,6 @@ def evaluate(model: SarcasmModel, dlA: DataLoader, dlB: DataLoader, device: torc
             best_th = thresholds[idx] if idx < len(thresholds) else 0.5
             f1_a = float(best_f1)
 
-    # --- TASK B: Pairwise Accuracy ---
     correct = 0
     total = 0
     for batch in dlB:
@@ -202,7 +182,6 @@ def evaluate(model: SarcasmModel, dlA: DataLoader, dlB: DataLoader, device: torc
         score_s = model.forward_score(ids_s, mask_s)
         score_r = model.forward_score(ids_r, mask_r)
 
-        # Predizione corretta se score(sarc) > score(reph)
         preds = (score_s > score_r).float()
         correct += preds.sum().item()
         total += preds.size(0)
@@ -228,7 +207,6 @@ def main():
     device_str = cfg["training"].get("device", "cuda")
     device = torch.device(device_str if (device_str == "cpu" or torch.cuda.is_available()) else "cpu")
 
-    # ATTENZIONE: Assicurati che punti alla nuova cartella tokenizzata
     tokenized_dir = cfg["data"].get("tokenized_dir", "../data/tokenized/tokenized_siamese")
     
     out_dir = Path(cfg["training"]["output_dir"])
@@ -240,13 +218,12 @@ def main():
     lr = float(cfg["training"]["lr"])
     lambda_a = float(cfg["training"].get("lambda_a", 1.0))
     lambda_b = float(cfg["training"].get("lambda_b", 0.5)) 
-    margin = float(cfg["training"].get("margin", 1.0)) # Margine per Ranking Loss
+    margin = float(cfg["training"].get("margin", 1.0))
 
     ds = load_from_disk(tokenized_dir)
     train_ds = ds["train"]
     val_ds = ds["validation"]
 
-    # Separazione indici per Sampler
     train_tasks = train_ds["task"]
     idx_a = [i for i, t in enumerate(train_tasks) if t == "A"]
     idx_b = [i for i, t in enumerate(train_tasks) if t == "B"]
@@ -267,27 +244,15 @@ def main():
         pin_memory=True,
     )
 
-    # DataLoader separati per validation
     dlA_val = DataLoader(val_ds.select(val_idx_a), batch_size=batch_size, collate_fn=collator)
     dlB_val = DataLoader(val_ds.select(val_idx_b), batch_size=batch_size, collate_fn=collator)
-
-    # Pos Weight per Task A (Sbilanciamento)
-    y_a = np.array([x for x in train_ds.select(idx_a)["label_a"] if x != IGNORE_IDX])
-    n_pos = (y_a == 1).sum()
-    n_neg = (y_a == 0).sum()
-    pos_weight = torch.tensor([n_neg / max(1, n_pos)], device=device)
-    
-    print(f"Pos Weight A: {pos_weight.item():.2f}")
 
     model = SarcasmModel(model_id=model_id, peft_cfg=cfg.get("peft", {})).to(device)
     
     optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=lr, weight_decay=0.01)
     scheduler = get_linear_schedule_with_warmup(optimizer, int(len(dl_train)*0.06), len(dl_train)*epochs)
 
-    # Loss Functions
-    # Task A: Binary Cross Entropy
-    loss_fn_a = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-    # Task B: Margin Ranking Loss (Contrastive)
+    loss_fn_a = nn.BCEWithLogitsLoss()
     loss_fn_b = nn.MarginRankingLoss(margin=margin)
 
     best_score = -1e9
@@ -300,28 +265,24 @@ def main():
         for batch in pbar:
             loss = torch.tensor(0.0, device=device)
             
-            # --- TASK A STEP ---
             if "input_ids_a" in batch:
                 ids = batch["input_ids_a"].to(device)
                 mask = batch["attention_mask_a"].to(device)
-                y = batch["label_a"].to(device).unsqueeze(-1) # (B, 1)
+                y = batch["label_a"].to(device).unsqueeze(-1)
                 
                 logits = model.forward_score(ids, mask)
                 loss_curr_a = loss_fn_a(logits, y)
                 loss += lambda_a * loss_curr_a
 
-            # --- TASK B STEP (Ranking) ---
             if "input_ids_b_sarc" in batch:
                 ids_s = batch["input_ids_b_sarc"].to(device)
                 mask_s = batch["mask_b_sarc"].to(device)
                 ids_r = batch["input_ids_b_reph"].to(device)
                 mask_r = batch["mask_b_reph"].to(device)
                 
-                # MODIFICA QUI: Aggiungi .view(-1) per appiattire i tensori a [Batch_Size]
                 score_s = model.forward_score(ids_s, mask_s).view(-1)
                 score_r = model.forward_score(ids_r, mask_r).view(-1)
                 
-                # Target=1 significa che input1 (score_s) deve essere > input2 (score_r)
                 target = torch.ones(score_s.size(0), device=device)
                 
                 loss_curr_b = loss_fn_b(score_s, score_r, target)
@@ -336,7 +297,6 @@ def main():
             total_loss += loss.item()
             pbar.set_postfix(loss=f"{loss.item():.4f}")
 
-        # --- EVALUATION ---
         metrics = evaluate(model, dlA_val, dlB_val, device)
         avg_loss = total_loss / max(1, len(dl_train))
         
