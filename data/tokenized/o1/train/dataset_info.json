@@ -1,0 +1,84 @@
+{
+  "builder_name": "json",
+  "citation": "",
+  "config_name": "default",
+  "dataset_name": "json",
+  "dataset_size": 1069145,
+  "description": "",
+  "download_checksums": {
+    "/Users/domenicodemarchis/Desktop/Sarcasm_Detection_DL/data/train.jsonl": {
+      "num_bytes": 883672,
+      "checksum": null
+    },
+    "/Users/domenicodemarchis/Desktop/Sarcasm_Detection_DL/data/val.jsonl": {
+      "num_bytes": 96687,
+      "checksum": null
+    },
+    "/Users/domenicodemarchis/Desktop/Sarcasm_Detection_DL/data/test.jsonl": {
+      "num_bytes": 200420,
+      "checksum": null
+    }
+  },
+  "download_size": 1180779,
+  "features": {
+    "task": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "id": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "label_a": {
+      "dtype": "int64",
+      "_type": "Value"
+    },
+    "label_b": {
+      "dtype": "int64",
+      "_type": "Value"
+    },
+    "input_ids": {
+      "feature": {
+        "dtype": "int32",
+        "_type": "Value"
+      },
+      "_type": "List"
+    },
+    "attention_mask": {
+      "feature": {
+        "dtype": "int8",
+        "_type": "Value"
+      },
+      "_type": "List"
+    }
+  },
+  "homepage": "",
+  "license": "",
+  "size_in_bytes": 2249924,
+  "splits": {
+    "train": {
+      "name": "train",
+      "num_bytes": 799415,
+      "num_examples": 4680,
+      "dataset_name": "json"
+    },
+    "validation": {
+      "name": "validation",
+      "num_bytes": 87253,
+      "num_examples": 521,
+      "dataset_name": "json"
+    },
+    "test": {
+      "name": "test",
+      "num_bytes": 182477,
+      "num_examples": 1400,
+      "dataset_name": "json"
+    }
+  },
+  "version": {
+    "version_str": "0.0.0",
+    "major": 0,
+    "minor": 0,
+    "patch": 0
+  }
+}
