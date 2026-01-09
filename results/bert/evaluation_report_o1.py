@@ -14,14 +14,14 @@ from transformers import AutoTokenizer, AutoModel, DataCollatorWithPadding
 
 IGNORE_IDX = -100
 
-MODEL_DIR = Path("../runs/modernbert_ac_lora_mixbatch") 
-DATASET_DIR = Path("../../data/tokenized")
+MODEL_DIR = Path(f"../runs/modernbert_o1") 
+DATASET_DIR = Path(f"../../data/tokenized/o1")
 SPLIT = "test"
 BATCH_SIZE = 32
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 THRESHOLD = 0.5
 TUNE_ON_SPLIT = "validation" 
-REPORT_OUT = "report_test.md"
+REPORT_OUT = f"report_test_modernbert_o1.md"
 
 @dataclass
 class BinaryMetrics:
