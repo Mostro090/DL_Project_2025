@@ -163,7 +163,6 @@ def evaluate(model: SarcasmModel, dlA: DataLoader, device: torch.device) -> Dict
         ys = np.concatenate(ys)
         probs = np.concatenate(probs)
         
-        # Calcolo F1 a soglia fissa 0.5
         preds_fixed = (probs >= 0.5).astype(int)
         
         tp = np.sum((ys == 1) & (preds_fixed == 1))
@@ -174,7 +173,6 @@ def evaluate(model: SarcasmModel, dlA: DataLoader, device: torch.device) -> Dict
         rec  = tp / max(1, tp + fn)
         f1_fixed = 2 * (prec * rec) / max(1e-9, prec + rec)
 
-        # Calcolo best threshold (per logging)
         precisions, recalls, thresholds = precision_recall_curve(ys, probs)
         f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-9)
         f1_scores = np.nan_to_num(f1_scores)
@@ -214,7 +212,9 @@ def main():
     lambda_a = float(cfg["training"].get("lambda_a", 1.0))
     lambda_b = float(cfg["training"].get("lambda_b", 0.5)) 
     margin = float(cfg["training"].get("margin", 1.0))
-
+    
+    pos_weight_val = cfg["training"].get("pos_weight", None)
+    
     ds = load_from_disk(tokenized_dir)
     train_ds = ds["train"]
     val_ds = ds["validation"]
@@ -245,9 +245,13 @@ def main():
     optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=lr, weight_decay=0.01)
     scheduler = get_linear_schedule_with_warmup(optimizer, int(len(dl_train)*0.06), len(dl_train)*epochs)
 
-    # MODIFICA 1: Peso per bilanciare le classi (1200 neg / 200 pos = 6.0)
-    pos_weight = torch.tensor([6.0]).to(device)
-    loss_fn_a = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    if pos_weight_val is not None:
+        print(f"--> Using BCE Loss with pos_weight={pos_weight_val}")
+        pos_weight_tensor = torch.tensor([float(pos_weight_val)]).to(device)
+        loss_fn_a = nn.BCEWithLogitsLoss(pos_weight=pos_weight_tensor)
+    else:
+        print("--> Using Standard BCE Loss (No pos_weight)")
+        loss_fn_a = nn.BCEWithLogitsLoss()
     
     loss_fn_b = nn.MarginRankingLoss(margin=margin)
 
@@ -287,7 +291,6 @@ def main():
             optimizer.zero_grad()
             loss.backward()
             
-            # MODIFICA 2: Gradient Clipping RIATTIVATO
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             
             optimizer.step()

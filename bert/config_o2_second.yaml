@@ -12,21 +12,25 @@ model:
 
 peft:
   enable: true
-  lora_r: 32           
-  lora_alpha: 64       
+  lora_r: 16            
+  lora_alpha: 32      
   lora_dropout: 0.1     
   target_modules: ["Wqkv", "Wo"] 
 
 training:
-  output_dir: "../results/runs/modernbert_o2_fourth"
-  epochs: 10           
+  output_dir: "../results/runs/modernbert_o2_third"
+  epochs: 12
   
   batch_size: 16
   mix_strategy: "deterministic_concat"
   
-  lr: 2.0e-4   
+  lr: 2.0e-4            
   weight_decay: 0.01
   warmup_ratio: 0.1
+  
+  pos_weight: 3  
+  
+  grad_clip: 1.0        
   
   lambda_a: 1.0
   lambda_b: 0.5
