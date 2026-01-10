@@ -3,9 +3,10 @@ from pathlib import Path
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
-TRAIN_FILE = "train.jsonl"
-VAL_FILE   = "val.jsonl"
-TEST_FILE  = "test.jsonl"
+DIR = Path("o1_multitask")
+TRAIN_FILE = DIR / "train.jsonl"
+VAL_FILE   = DIR / "val.jsonl"
+TEST_FILE  = DIR / "test.jsonl"
 
 OUT_DIR    = Path("tokenized/o1")
 
@@ -18,19 +19,20 @@ def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     data_files = {
-        "train": TRAIN_FILE,
-        "validation": VAL_FILE,
-        "test": TEST_FILE
+        "train": str(TRAIN_FILE),
+        "validation": str(VAL_FILE),
     }
-    
+    if TEST_FILE.exists():
+        data_files["test"] = str(TEST_FILE)
+
     print(f"Loading data files: {data_files}")
     ds = load_dataset("json", data_files=data_files)
-    
+
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
     def tokenize(example):
         t0 = example["task"]
-        
+
         l_a = IGNORE_IDX
         l_b = IGNORE_IDX
 
@@ -42,7 +44,6 @@ def main():
                 max_length=MAX_LEN_A,
                 add_special_tokens=True,
             )
-            
             val_a = example.get("label_a")
             if val_a is not None:
                 l_a = int(val_a)
@@ -57,11 +58,9 @@ def main():
                 max_length=MAX_LEN_B,
                 add_special_tokens=True,
             )
-            
             val_b = example.get("label_b")
             if val_b is not None:
                 l_b = int(val_b)
-        
         else:
             raise ValueError(f"Unknown task='{t0}' in id={example.get('id')}")
 
@@ -73,7 +72,7 @@ def main():
 
     raw_cols = ds["train"].column_names
     print("Tokenizing dataset...")
-    
+
     ds_tok = ds.map(tokenize, batched=False, remove_columns=raw_cols)
 
     print(f"Columns in train: {ds_tok['train'].column_names}")

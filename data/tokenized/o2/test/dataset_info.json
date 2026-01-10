@@ -3,23 +3,23 @@
   "citation": "",
   "config_name": "default",
   "dataset_name": "json",
-  "dataset_size": 1031363,
+  "dataset_size": 862622,
   "description": "",
   "download_checksums": {
-    "/Users/domenicodemarchis/Desktop/Sarcasm_Detection_DL/data/train.jsonl": {
-      "num_bytes": 883672,
+    "/Users/domenicodemarchis/Desktop/Sarcasm_Detection_DL/data/o2_multitask/train.jsonl": {
+      "num_bytes": 692435,
       "checksum": null
     },
-    "/Users/domenicodemarchis/Desktop/Sarcasm_Detection_DL/data/val.jsonl": {
+    "/Users/domenicodemarchis/Desktop/Sarcasm_Detection_DL/data/o2_multitask/val.jsonl": {
       "num_bytes": 53943,
       "checksum": null
     },
-    "/Users/domenicodemarchis/Desktop/Sarcasm_Detection_DL/data/test.jsonl": {
+    "/Users/domenicodemarchis/Desktop/Sarcasm_Detection_DL/data/o2_multitask/test.jsonl": {
       "num_bytes": 200420,
       "checksum": null
     }
   },
-  "download_size": 1138035,
+  "download_size": 946798,
   "features": {
     "task": {
       "dtype": "string",
@@ -82,12 +82,12 @@
   },
   "homepage": "",
   "license": "",
-  "size_in_bytes": 2169398,
+  "size_in_bytes": 1809420,
   "splits": {
     "train": {
       "name": "train",
-      "num_bytes": 799415,
-      "num_examples": 4680,
+      "num_bytes": 630674,
+      "num_examples": 3900,
       "dataset_name": "json"
     },
     "validation": {

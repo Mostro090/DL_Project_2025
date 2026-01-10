@@ -92,7 +92,7 @@ class SarcasmModel(nn.Module):
     def forward_score(self, input_ids, attention_mask):
         cls = self.get_cls(input_ids, attention_mask)
         score = self.head_score(cls)
-        return torch.clamp(score, min=-10.0, max=10.0)
+        return score
 
 class MixedABBatchSampler:
     def __init__(self, idx_a: List[int], idx_b: List[int], batch_size: int, seed: int = 42):
@@ -156,26 +156,38 @@ def evaluate(model: SarcasmModel, dlA: DataLoader, device: torch.device) -> Dict
         ys.append(labels)
         probs.append(prob)
 
-    f1_a, best_th = 0.0, 0.5
+    f1_fixed = 0.0
+    best_th = 0.5
+
     if ys:
         ys = np.concatenate(ys)
         probs = np.concatenate(probs)
         
+        # Calcolo F1 a soglia fissa 0.5
+        preds_fixed = (probs >= 0.5).astype(int)
+        
+        tp = np.sum((ys == 1) & (preds_fixed == 1))
+        fp = np.sum((ys == 0) & (preds_fixed == 1))
+        fn = np.sum((ys == 1) & (preds_fixed == 0))
+        
+        prec = tp / max(1, tp + fp)
+        rec  = tp / max(1, tp + fn)
+        f1_fixed = 2 * (prec * rec) / max(1e-9, prec + rec)
+
+        # Calcolo best threshold (per logging)
         precisions, recalls, thresholds = precision_recall_curve(ys, probs)
         f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-9)
         f1_scores = np.nan_to_num(f1_scores)
         if len(f1_scores) > 0:
             idx = np.argmax(f1_scores)
-            best_f1 = f1_scores[idx]
             best_th = thresholds[idx] if idx < len(thresholds) else 0.5
-            f1_a = float(best_f1)
 
     return {
-        "A_f1": f1_a, 
-        "score": f1_a,
+        "A_f1": float(f1_fixed),
+        "score": float(f1_fixed),
         "best_th": float(best_th)
     }
-
+    
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
@@ -233,7 +245,10 @@ def main():
     optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=lr, weight_decay=0.01)
     scheduler = get_linear_schedule_with_warmup(optimizer, int(len(dl_train)*0.06), len(dl_train)*epochs)
 
-    loss_fn_a = nn.BCEWithLogitsLoss()
+    # MODIFICA 1: Peso per bilanciare le classi (1200 neg / 200 pos = 6.0)
+    pos_weight = torch.tensor([6.0]).to(device)
+    loss_fn_a = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    
     loss_fn_b = nn.MarginRankingLoss(margin=margin)
 
     best_score = -1e9
@@ -272,8 +287,8 @@ def main():
             optimizer.zero_grad()
             loss.backward()
             
-            # --- GRADIENT CLIPPING RIMOSSO (era: clip_grad_norm_) ---
-            # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            # MODIFICA 2: Gradient Clipping RIATTIVATO
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             
             optimizer.step()
             scheduler.step()
@@ -286,7 +301,7 @@ def main():
         
         print(f"\nEpoch {epoch}")
         print(f"  Loss: {avg_loss:.4f}")
-        print(f"  A_f1: {metrics['A_f1']:.4f} (Th: {metrics['best_th']:.2f})")
+        print(f"  A_f1 (Fixed 0.5): {metrics['A_f1']:.4f} (Best Th Potential: {metrics['best_th']:.2f})")
         
         if metrics["score"] > best_score:
             best_score = metrics["score"]
