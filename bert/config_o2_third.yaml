@@ -18,20 +18,20 @@ peft:
   target_modules: ["Wqkv", "Wo"] 
 
 training:
-  output_dir: "../results/runs/modernbert_o2_second"
+  output_dir: "../results/runs/modernbert_o2_third"
   epochs: 12            
   
   batch_size: 16
   mix_strategy: "deterministic_concat"
   
-  lr: 2.0e-5            
+  lr: 3.0e-5         
   weight_decay: 0.01
   warmup_ratio: 0.1
   
   lambda_a: 1.0
-  lambda_b: 0.5        
+  lambda_b: 1.0       
   
-  margin: 1.0          
+  margin: 2.0           
     
   device: "cuda"
   num_workers: 2
