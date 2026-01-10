@@ -29,8 +29,8 @@
   "rank_pattern": {},
   "revision": null,
   "target_modules": [
-    "Wo",
-    "Wqkv"
+    "Wqkv",
+    "Wo"
   ],
   "target_parameters": null,
   "task_type": "FEATURE_EXTRACTION",

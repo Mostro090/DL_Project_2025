@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Tuple, List
+import ast
 
 import numpy as np
 import torch
@@ -13,14 +14,12 @@ from datasets import load_from_disk
 from transformers import AutoTokenizer, AutoModel, DataCollatorWithPadding
 
 IGNORE_IDX = -100
-
 MODEL_DIR = Path(f"../runs/modernbert_o2") 
 DATASET_DIR = Path(f"../../data/tokenized/o2")
 SPLIT = "test"
 BATCH_SIZE = 32
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 THRESHOLD = 0.5
-TUNE_ON_SPLIT = "validation" 
 REPORT_OUT = f"report_test_modernbert_o2.md"
 
 @dataclass
@@ -106,31 +105,23 @@ class SarcasmInferenceModel(nn.Module):
         out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
         return out.last_hidden_state[:, 0]
 
-def load_encoder_from_dir(model_dir: Path) -> nn.Module:
-    adapter_cfg = model_dir / "adapter_config.json"
-    if adapter_cfg.exists():
-        from peft import PeftModel, PeftConfig
-        peft_cfg = PeftConfig.from_pretrained(str(model_dir))
-        base = AutoModel.from_pretrained(peft_cfg.base_model_name_or_path)
-        enc = PeftModel.from_pretrained(base, str(model_dir))
-        return enc
-    else:
-        return AutoModel.from_pretrained(str(model_dir))
-
 def load_full_model(model_dir: Path, device: str) -> Tuple[SarcasmInferenceModel, AutoTokenizer]:
     abs_model_dir = model_dir.resolve()
     print(f"Loading encoder/adapter from {abs_model_dir}...")
+
+    if not abs_model_dir.exists():
+        raise FileNotFoundError(f"Errore: La cartella {abs_model_dir} non esiste. Hai finito il training?")
 
     from peft import PeftConfig, PeftModel
     try:
         peft_cfg = PeftConfig.from_pretrained(str(abs_model_dir))
     except Exception as e:
-        raise FileNotFoundError(f"Impossibile trovare adapter_config.json in {abs_model_dir}. Il percorso è corretto?") from e
+        raise FileNotFoundError(f"Impossibile trovare adapter_config.json in {abs_model_dir}.") from e
 
     try:
         tokenizer = AutoTokenizer.from_pretrained(str(abs_model_dir))
     except Exception:
-        print(f"⚠️ Tokenizer locale non trovato in {abs_model_dir}. Carico il tokenizer originale: {peft_cfg.base_model_name_or_path}")
+        print(f"⚠️ Tokenizer locale non trovato. Carico il base: {peft_cfg.base_model_name_or_path}")
         tokenizer = AutoTokenizer.from_pretrained(peft_cfg.base_model_name_or_path)
 
     base = AutoModel.from_pretrained(peft_cfg.base_model_name_or_path)
@@ -140,10 +131,7 @@ def load_full_model(model_dir: Path, device: str) -> Tuple[SarcasmInferenceModel
 
     heads_path = abs_model_dir / "head_score.pt"
     if not heads_path.exists():
-        raise FileNotFoundError(
-            f"Missing head_score.pt in {abs_model_dir}. "
-            "Assicurati di aver runnato il training 'Siamese' che salva head_score.pt"
-        )
+        raise FileNotFoundError(f"Missing head_score.pt in {abs_model_dir}.")
 
     print(f"Loading classification head from {heads_path}...")
     ckpt = torch.load(str(heads_path), map_location="cpu")
@@ -172,8 +160,7 @@ def predict_task_a(
             mask = batch["attention_mask"].to(device)
             y_batch = batch.get("label_a", batch.get("label", None))
 
-        if y_batch is None:
-             continue
+        if y_batch is None: continue
 
         cls = model.get_cls(ids, mask)
         logits = model.head_score(cls).squeeze(-1) 
@@ -197,26 +184,6 @@ def threshold_to_preds(logits: np.ndarray, thr: float) -> np.ndarray:
     probs = 1.0 / (1.0 + np.exp(-logits))
     return (probs >= thr).astype(int)
 
-def tune_threshold_for_f1(y_true: np.ndarray, logits: np.ndarray) -> Tuple[float, BinaryMetrics]:
-    probs = 1.0 / (1.0 + np.exp(-logits))
-    candidates = np.unique(probs)
-    if len(candidates) > 1000:
-        candidates = np.percentile(candidates, np.linspace(0, 100, 1000))
-        
-    candidates = np.concatenate(([0.0], candidates, [1.0]))
-
-    best_thr = 0.5
-    best_m = binary_metrics(y_true, (probs >= 0.5).astype(int))
-
-    for thr in candidates:
-        y_pred = (probs >= thr).astype(int)
-        m = binary_metrics(y_true, y_pred)
-        if m.f1 > best_m.f1:
-            best_m = m
-            best_thr = float(thr)
-
-    return best_thr, best_m
-
 def build_markdown_report(
     model_name: str,
     file_analyzed: str,
@@ -226,10 +193,10 @@ def build_markdown_report(
     total_valid = metrics.support_0 + metrics.support_1
 
     md = []
-    md.append("# Report Valutazione Sarcasmo (Siamese Model)\n")
+    md.append(f"# Report Valutazione Sarcasmo (Last Checkpoint)\n")
     md.append(f"**Modello:** `{model_name}`  ")
     md.append(f"**File Analizzato:** `{file_analyzed}`  ")
-    md.append(f"**Totale Esempi Validi:** {total_valid}\n")
+    md.append(f"**Soglia Utilizzata:** **{THRESHOLD:.2f}** (Fixed)\n")
     md.append("---\n")
     md.append("## 1. Metriche Principali (Classe 'Sarcastic')\n")
     md.append("| Metrica | Valore | Descrizione |")
@@ -238,12 +205,6 @@ def build_markdown_report(
     md.append(f"| **F1-Score** | **{metrics.f1:.4f}** | Media armonica tra Precision e Recall |")
     md.append(f"| **Precision** | {metrics.precision:.4f} | Quando predice \"Sarcasmo\", quanto spesso ha ragione? |")
     md.append(f"| **Recall** | {metrics.recall:.4f} | Quanto sarcasmo reale riesce a trovare? |")
-    md.append("\n---\n")
-    md.append("## 2. Matrice di Confusione\n")
-    md.append("| | **Predetto: Non Sarcastico (0)** | **Predetto: Sarcastico (1)** |")
-    md.append("| :--- | :---: | :---: |")
-    md.append(f"| **Reale: Non Sarcastico (0)** | **{metrics.tn}** (True Negative) | **{metrics.fp}** (False Positive) |")
-    md.append(f"| **Reale: Sarcastico (1)** | **{metrics.fn}** (False Negative) | **{metrics.tp}** (True Positive) |")
     md.append("\n---\n")
     md.append("## 3. Report Dettagliato\n")
     md.append("```text")
@@ -260,7 +221,7 @@ def main():
     ds = load_from_disk(str(DATASET_DIR))
     
     if SPLIT not in ds:
-        raise ValueError(f"Split '{SPLIT}' not found. Available: {list(ds.keys())}")
+        raise ValueError(f"Split '{SPLIT}' not found.")
 
     def make_dl(split_name: str) -> DataLoader:
         d = ds[split_name]
@@ -268,57 +229,20 @@ def main():
         d.set_format(type="torch", columns=cols)
         return DataLoader(d, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collator)
 
-    final_thr = THRESHOLD
-    
-    # --- PHASE 1: TUNING SUL VALIDATION (Opzionale) ---
-    if TUNE_ON_SPLIT is not None and TUNE_ON_SPLIT in ds:
-        print(f"--- Tuning Threshold on {TUNE_ON_SPLIT} ---")
-        dl_tune = make_dl(TUNE_ON_SPLIT)
-        y_true_t, logits_t = predict_task_a(model, dl_tune, device=DEVICE)
-        
-        if len(y_true_t) > 0:
-            m05 = binary_metrics(y_true_t, threshold_to_preds(logits_t, 0.5))
-            print(f"[VAL @0.50] F1={m05.f1:.4f} (P={m05.precision:.2f}, R={m05.recall:.2f})")
-            # Nota: qui potremmo sovrascrivere final_thr, ma per ora usiamo la diagnostica sotto
-        else:
-            print(f"[WARNING] No valid examples in '{TUNE_ON_SPLIT}' for tuning.")
-
-    # --- PHASE 2: EVALUATION SUL TEST ---
-    print(f"--- Evaluating on {SPLIT} ---")
+    print(f"\n--- VALUTAZIONE SU {SPLIT} con Soglia Fissa {THRESHOLD:.2f} ---")
     dl_eval = make_dl(SPLIT)
-    
-    # 1. CALCOLA I LOGITS DEL TEST SET (Fondamentale farlo prima della diagnostica)
     y_true, logits = predict_task_a(model, dl_eval, device=DEVICE)
     
     if len(y_true) == 0:
-        print(f"Nessun esempio valido trovato nello split '{SPLIT}'. Controlla che il dataset abbia le label.")
+        print(f"Nessun esempio valido trovato.")
         return
 
-    # 2. DIAGNOSTICA SOGLIE (Ora 'logits' esiste ed è pieno)
-    print("\n--- DIAGNOSTICA SOGLIE SUL TEST SET ---")
-    best_diag_f1 = 0.0
-    best_diag_th = 0.5
-
-    # Testiamo range ampio, inclusi valori molto alti
-    for th in [0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.98, 0.99]:
-        y_pred_th = threshold_to_preds(logits, th)
-        m_th = binary_metrics(y_true, y_pred_th)
-        print(f"Threshold {th:.2f} -> F1 Sarcastic: {m_th.f1:.4f} | Precision: {m_th.precision:.4f} | Recall: {m_th.recall:.4f} | Acc: {m_th.accuracy:.4f}")
-        
-        if m_th.f1 > best_diag_f1:
-            best_diag_f1 = m_th.f1
-            best_diag_th = th
-    
-    print(f"\n[AUTO-SELECT] La soglia migliore sembra essere: {best_diag_th:.2f} (F1: {best_diag_f1:.4f})")
-    final_thr = best_diag_th
-
-    # 3. GENERAZIONE REPORT FINALE (con la soglia "vincitrice")
-    y_pred = threshold_to_preds(logits, final_thr)
+    y_pred = threshold_to_preds(logits, THRESHOLD)
     m = binary_metrics(y_true, y_pred)
     rep = classification_report_like(y_true, y_pred)
 
     model_name = MODEL_DIR.name
-    file_analyzed = f"{DATASET_DIR.name}:{SPLIT} (thr={final_thr:.2f})"
+    file_analyzed = f"{DATASET_DIR.name}:{SPLIT}"
     md = build_markdown_report(model_name=model_name, file_analyzed=file_analyzed, metrics=m, report_text=rep)
 
     print("\n" + md + "\n")
@@ -326,6 +250,6 @@ def main():
     if REPORT_OUT:
         Path(REPORT_OUT).write_text(md, encoding="utf-8")
         print(f"Report saved to: {REPORT_OUT}")
-        
+
 if __name__ == "__main__":
     main()

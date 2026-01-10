@@ -62,7 +62,6 @@ class SmartMixCollator:
 
         return out
 
-
 class SarcasmModel(nn.Module):
     def __init__(self, model_id: str, peft_cfg: dict):
         super().__init__()
@@ -83,14 +82,17 @@ class SarcasmModel(nn.Module):
         hidden = self.encoder.config.hidden_size
         self.head_score = nn.Linear(hidden, 1)
 
+        nn.init.normal_(self.head_score.weight, mean=0.0, std=0.01)
+        nn.init.zeros_(self.head_score.bias)
+
     def get_cls(self, input_ids, attention_mask):
         out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
         return out.last_hidden_state[:, 0]
     
     def forward_score(self, input_ids, attention_mask):
         cls = self.get_cls(input_ids, attention_mask)
-        return self.head_score(cls)
-
+        score = self.head_score(cls)
+        return torch.clamp(score, min=-10.0, max=10.0)
 
 class MixedABBatchSampler:
     def __init__(self, idx_a: List[int], idx_b: List[int], batch_size: int, seed: int = 42):
@@ -136,9 +138,8 @@ class MixedABBatchSampler:
             rng.shuffle(batch)
             yield batch
 
-
 @torch.no_grad()
-def evaluate(model: SarcasmModel, dlA: DataLoader, dlB: DataLoader, device: torch.device) -> Dict[str, float]:
+def evaluate(model: SarcasmModel, dlA: DataLoader, device: torch.device) -> Dict[str, float]:
     model.eval()
 
     ys, probs = [], []
@@ -169,32 +170,11 @@ def evaluate(model: SarcasmModel, dlA: DataLoader, dlB: DataLoader, device: torc
             best_th = thresholds[idx] if idx < len(thresholds) else 0.5
             f1_a = float(best_f1)
 
-    correct = 0
-    total = 0
-    for batch in dlB:
-        if "input_ids_b_sarc" not in batch: continue
-
-        ids_s = batch["input_ids_b_sarc"].to(device)
-        mask_s = batch["mask_b_sarc"].to(device)
-        ids_r = batch["input_ids_b_reph"].to(device)
-        mask_r = batch["mask_b_reph"].to(device)
-
-        score_s = model.forward_score(ids_s, mask_s)
-        score_r = model.forward_score(ids_r, mask_r)
-
-        preds = (score_s > score_r).float()
-        correct += preds.sum().item()
-        total += preds.size(0)
-
-    acc_b = correct / total if total > 0 else 0.0
-
     return {
         "A_f1": f1_a, 
-        "B_acc": acc_b, 
-        "score": f1_a + 0.2 * acc_b,
+        "score": f1_a,
         "best_th": float(best_th)
     }
-
 
 def main():
     ap = argparse.ArgumentParser()
@@ -211,6 +191,9 @@ def main():
     
     out_dir = Path(cfg["training"]["output_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    last_out_dir = out_dir / "last_checkpoint"
+    last_out_dir.mkdir(parents=True, exist_ok=True)
 
     model_id = cfg["model"]["model_id"]
     epochs = int(cfg["training"]["epochs"])
@@ -229,7 +212,6 @@ def main():
     idx_b = [i for i, t in enumerate(train_tasks) if t == "B"]
     
     val_idx_a = [i for i, t in enumerate(val_ds["task"]) if t == "A"]
-    val_idx_b = [i for i, t in enumerate(val_ds["task"]) if t == "B"]
 
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     collator = SmartMixCollator(tokenizer)
@@ -245,7 +227,6 @@ def main():
     )
 
     dlA_val = DataLoader(val_ds.select(val_idx_a), batch_size=batch_size, collate_fn=collator)
-    dlB_val = DataLoader(val_ds.select(val_idx_b), batch_size=batch_size, collate_fn=collator)
 
     model = SarcasmModel(model_id=model_id, peft_cfg=cfg.get("peft", {})).to(device)
     
@@ -290,19 +271,22 @@ def main():
 
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            
+            # --- GRADIENT CLIPPING RIMOSSO (era: clip_grad_norm_) ---
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            
             optimizer.step()
             scheduler.step()
 
             total_loss += loss.item()
             pbar.set_postfix(loss=f"{loss.item():.4f}")
 
-        metrics = evaluate(model, dlA_val, dlB_val, device)
+        metrics = evaluate(model, dlA_val, device)
         avg_loss = total_loss / max(1, len(dl_train))
         
         print(f"\nEpoch {epoch}")
         print(f"  Loss: {avg_loss:.4f}")
-        print(f"  A_f1: {metrics['A_f1']:.4f} (Th: {metrics['best_th']:.2f}) | B_acc: {metrics['B_acc']:.4f}")
+        print(f"  A_f1: {metrics['A_f1']:.4f} (Th: {metrics['best_th']:.2f})")
         
         if metrics["score"] > best_score:
             best_score = metrics["score"]
@@ -310,7 +294,12 @@ def main():
             tokenizer.save_pretrained(out_dir)
             torch.save(model.head_score.state_dict(), out_dir / "head_score.pt")
             (out_dir / "metrics_best.txt").write_text(str(metrics), encoding="utf-8")
-            print(f"  Saved best to {out_dir}")
+            print(f"  Saved BEST to {out_dir}")
+
+        model.encoder.save_pretrained(last_out_dir)
+        tokenizer.save_pretrained(last_out_dir)
+        torch.save(model.head_score.state_dict(), last_out_dir / "head_score.pt")
+        print(f"  Saved LAST to {last_out_dir}")
 
     print(f"\nDone! Best score: {best_score:.4f}")
 
