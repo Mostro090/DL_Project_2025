@@ -35,7 +35,6 @@ def main():
             "task": t0,
             "id": example.get("id", ""),
             "label_a": IGNORE_IDX,
-            "label_b": IGNORE_IDX,
             "input_ids": [], "attention_mask": [],
             "input_ids_sarc": [], "attention_mask_sarc": [],
             "input_ids_reph": [], "attention_mask_reph": [],
@@ -61,10 +60,7 @@ def main():
             tok_reph = tokenizer(txt_reph, truncation=True, max_length=MAX_LEN)
             output["input_ids_reph"] = tok_reph["input_ids"]
             output["attention_mask_reph"] = tok_reph["attention_mask"]
-            
-            if example.get("label_b") is not None:
-                output["label_b"] = int(example["label_b"])
-        
+                    
         return output
     
     print("Tokenizing dataset for Siamese/Ranking (Canonical O2)...")

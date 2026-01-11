@@ -3,11 +3,11 @@
   "citation": "",
   "config_name": "default",
   "dataset_name": "json",
-  "dataset_size": 862622,
+  "dataset_size": 816739,
   "description": "",
   "download_checksums": {
     "/Users/domenicodemarchis/Desktop/Sarcasm_Detection_DL/data/o2_multitask/train.jsonl": {
-      "num_bytes": 692435,
+      "num_bytes": 681515,
       "checksum": null
     },
     "/Users/domenicodemarchis/Desktop/Sarcasm_Detection_DL/data/o2_multitask/val.jsonl": {
@@ -19,7 +19,7 @@
       "checksum": null
     }
   },
-  "download_size": 946798,
+  "download_size": 935878,
   "features": {
     "task": {
       "dtype": "string",
@@ -30,10 +30,6 @@
       "_type": "Value"
     },
     "label_a": {
-      "dtype": "int64",
-      "_type": "Value"
-    },
-    "label_b": {
       "dtype": "int64",
       "_type": "Value"
     },
@@ -82,23 +78,23 @@
   },
   "homepage": "",
   "license": "",
-  "size_in_bytes": 1809420,
+  "size_in_bytes": 1752617,
   "splits": {
     "train": {
       "name": "train",
-      "num_bytes": 630674,
+      "num_bytes": 598986,
       "num_examples": 3900,
       "dataset_name": "json"
     },
     "validation": {
       "name": "validation",
-      "num_bytes": 49471,
+      "num_bytes": 46651,
       "num_examples": 347,
       "dataset_name": "json"
     },
     "test": {
       "name": "test",
-      "num_bytes": 182477,
+      "num_bytes": 171102,
       "num_examples": 1400,
       "dataset_name": "json"
     }

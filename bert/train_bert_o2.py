@@ -57,9 +57,7 @@ class SmartMixCollator:
             )
             out["input_ids_b_reph"] = pad_reph["input_ids"]
             out["mask_b_reph"] = pad_reph["attention_mask"]
-            
-            out["label_b"] = torch.tensor([f["label_b"] for f in batch_b], dtype=torch.long)
-
+        
         return out
 
 class SarcasmModel(nn.Module):

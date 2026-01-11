@@ -32,8 +32,7 @@ def create_multitask_rows(df: pd.DataFrame, include_B: bool) -> list[dict]:
                     "task": "B", 
                     "id": row_id, 
                     "text_a": text, 
-                    "text_b": r, 
-                    "label_b": 0
+                    "text_b": r     
                 })
 
     return rows
@@ -73,6 +72,7 @@ def main() -> None:
         save_jsonl(create_multitask_rows(df_test, include_B=False), "test.jsonl")
 
     d = pd.read_json(OUTPUT_DIR / "train.jsonl", lines=True)
+    print("Distribuzione Task nel Train:")
     print(d["task"].value_counts())
 
 if __name__ == "__main__":
