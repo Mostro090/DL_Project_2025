@@ -2,7 +2,7 @@
 
 **Modello:** `modernbert_o2_third`  
 **File Analizzato:** `o2:test`  
-**Soglia Utilizzata:** **0.60**
+**Soglia Utilizzata:** **0.75**
 
 ---
 
@@ -10,10 +10,10 @@
 
 | Metrica | Valore |
 | :--- | :--- |
-| **Accuracy** | **0.6493** |
-| **F1-Score** | **0.2661** |
-| **Precision** | 0.1898 |
-| **Recall** | 0.4450 |
+| **Accuracy** | **0.7364** |
+| **F1-Score** | **0.2807** |
+| **Precision** | 0.2300 |
+| **Recall** | 0.3600 |
 
 ---
 
@@ -22,10 +22,10 @@
 ```text
                 precision    recall  f1-score   support
 
-Non Sarcastic        0.88      0.68      0.77      1200
-Sarcastic            0.19      0.45      0.27       200
+Non Sarcastic        0.88      0.80      0.84      1200
+Sarcastic            0.23      0.36      0.28       200
 
-accuracy                             0.65      1400
-macro avg            0.54      0.56      0.52      1400
-weighted avg         0.78      0.65      0.70      1400
+accuracy                             0.74      1400
+macro avg            0.56      0.58      0.56      1400
+weighted avg         0.79      0.74      0.76      1400
 ```

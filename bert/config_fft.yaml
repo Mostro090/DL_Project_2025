@@ -21,12 +21,12 @@ peft:
 training:
   mode: "full"
   output_dir: "../results/runs/modernbert_o2_fullft"
-  epochs: 12
+  epochs: 10
 
   batch_size: 16
   mix_strategy: "deterministic_concat"
 
-  lr_encoder: 2.0e-5
+  lr_encoder: 2.0e-4
   lr_head: 2.0e-4
   weight_decay: 0.01
   warmup_ratio: 0.1
