@@ -175,39 +175,49 @@ def eval_taskA_score(model, tokenizer, ds_val_A, batch_size: int = 8):
 
 
 def weighted_causal_lm_loss(
-    logits: torch.Tensor,          # [B, L, V]
-    labels: torch.Tensor,          # [B, L]
-    tasks: List[str] | None,       # len B
-    gold_labels: List[int] | None, # len B
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    tasks: List[str] | None,
+    gold_labels: List[int] | None,
     pos_weight: float,
+    lambda_a: float,
+    lambda_c: float,
     ignore_index: int = IGNORE_INDEX,
 ) -> torch.Tensor:
-    """
-    Loss token-level CausalLM con peso maggiore SOLO per esempi task A positivi (gold_label==1).
-    Task C e task A negativi restano peso 1.
-    Normalizzazione per somma pesi sui token attivi -> scala stabile.
-    """
-    B, L, V = logits.shape
+    shift_logits = logits[..., :-1, :].contiguous()
+    shift_labels = labels[..., 1:].contiguous()
+
+    B, L_minus_1, V = shift_logits.shape
 
     loss_tok = F.cross_entropy(
-        logits.view(B * L, V),
-        labels.view(B * L),
+        shift_logits.view(-1, V),
+        shift_labels.view(-1),
         reduction="none",
         ignore_index=ignore_index,
-    ).view(B, L)
+    ).view(B, L_minus_1)
 
-    active = (labels != ignore_index).float()  # [B, L]
+    active = (shift_labels != ignore_index).float()
 
     w = torch.ones((B,), device=logits.device, dtype=loss_tok.dtype)
 
+    if tasks is not None:
+        for i, t in enumerate(tasks):
+            if t == "A":
+                w[i] *= float(lambda_a)
+            elif t == "C":
+                w[i] *= float(lambda_c)
+
     if tasks is not None and gold_labels is not None:
         for i, (t, g) in enumerate(zip(tasks, gold_labels)):
-            if t == "A" and int(g) == 1:
-                w[i] = float(pos_weight)
+            g_val = int(g.item()) if isinstance(g, torch.Tensor) else int(g)
+            if t == "A" and g_val == 1:
+                w[i] *= float(pos_weight)
 
     w = w.view(B, 1)
+
     weighted_sum = (loss_tok * active * w).sum()
     denom = (active * w).sum().clamp_min(1.0)
+
     return weighted_sum / denom
 
 
@@ -230,8 +240,9 @@ def main(cfg: Dict[str, Any]):
     eval_every = int(cfg.get("eval_every", 200))
     eval_batch_size = int(cfg.get("eval_batch_size", 8))
 
-    # nuovo: peso positivi task A
     pos_weight = float(cfg.get("pos_weight", 3.0))
+    lambda_a = float(cfg.get("lambda_a", 1.0))
+    lambda_c = float(cfg.get("lambda_c", 1.0))
 
     perf = cfg.get("performance", {})
     grad_ckpt = bool(perf.get("gradient_checkpointing", True))
@@ -320,10 +331,9 @@ def main(cfg: Dict[str, Any]):
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
 
-            tasks = batch.get("task", None)          # lista stringhe (A/C)
-            gold = batch.get("gold_label", None)     # lista int (0/1) per A
+            tasks = batch.get("task", None)
+            gold = batch.get("gold_label", None)
 
-            # forward senza labels, loss calcolato manualmente per pesare i positivi del task A
             out = model(input_ids=input_ids, attention_mask=attention_mask)
             loss = weighted_causal_lm_loss(
                 logits=out.logits,
@@ -331,6 +341,8 @@ def main(cfg: Dict[str, Any]):
                 tasks=tasks,
                 gold_labels=gold,
                 pos_weight=pos_weight,
+                lambda_a=lambda_a,
+                lambda_c=lambda_c,
                 ignore_index=IGNORE_INDEX,
             ) / grad_accum
 
@@ -379,7 +391,7 @@ def main(cfg: Dict[str, Any]):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default="config.yaml", help="Path to config.yaml")
+    parser.add_argument("--config", type=str, default="config.yaml")
     args = parser.parse_args()
 
     cfg = load_config(args.config)

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple, Dict
+from typing import List
 
 import numpy as np
 import torch
@@ -17,7 +16,7 @@ from transformers import (
 from peft import PeftModel, PeftConfig
 from tqdm import tqdm
 
-ADAPTER_DIR = Path("../runs/phi3_o1/step_400")
+ADAPTER_DIR = Path("../runs/phi3_o2/step_400")
 DATASET_DIR = Path("../../data/phi3_dataset")
 SPLIT = "test"
 BATCH_SIZE = 16
@@ -27,8 +26,8 @@ elif torch.backends.mps.is_available():
     DEVICE = "mps"
 else:
     DEVICE = "cpu"
-THRESHOLD = 0.0
-REPORT_OUT = "report_phi3_lora.md"
+THRESHOLD = 0.25
+REPORT_OUT = "report_phi3_o2.md"
 IGNORE_IDX = -100
 
 @dataclass
