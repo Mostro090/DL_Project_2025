@@ -4,13 +4,15 @@ output_dir: "../results/runs/phi3_o1"
 
 seed: 42
 max_steps: 1000
-batch_size: 1
+batch_size: 2
 grad_accum: 16
 
 lr: 2.0e-4
 warmup_ratio: 0.03
 weight_decay: 0.0
 max_grad_norm: 1.0
+
+pos_weight: 3.0  
 
 a_frac: 0.7        
 eval_every: 200

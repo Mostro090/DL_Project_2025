@@ -1,12 +1,12 @@
 import json
-import random
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any
 
 from datasets import Dataset, DatasetDict
 from transformers import AutoTokenizer
 
 IGNORE_INDEX = -100
+
 
 def load_jsonl(path: str) -> List[Dict[str, Any]]:
     rows = []
@@ -18,6 +18,7 @@ def load_jsonl(path: str) -> List[Dict[str, Any]]:
             rows.append(json.loads(line))
     return rows
 
+
 def build_prompt_A(text: str) -> str:
     return (
         "Classify the following text.\n"
@@ -26,8 +27,10 @@ def build_prompt_A(text: str) -> str:
         "Answer: "
     )
 
+
 def build_target_A(label: int, eos: str) -> str:
     return ("A" if int(label) == 1 else "B") + eos
+
 
 def build_prompt_C(text: str) -> str:
     return (
@@ -36,8 +39,10 @@ def build_prompt_C(text: str) -> str:
         "Rewrite: "
     )
 
+
 def build_target_C(rephrase: str, eos: str) -> str:
     return rephrase + eos
+
 
 def tokenize_with_masking(
     tok: AutoTokenizer,
@@ -54,11 +59,10 @@ def tokenize_with_masking(
             {"role": "user", "content": prompt},
         ]
         prompt_text = tok.apply_chat_template(
-            messages_prompt, 
-            tokenize=False, 
+            messages_prompt,
+            tokenize=False,
             add_generation_prompt=True
         )
-
         full_text = prompt_text + target
     else:
         full_text = prompt + target
@@ -76,110 +80,74 @@ def tokenize_with_masking(
 
     labels = input_ids.copy()
     prompt_len = len(enc_prompt["input_ids"])
-    
+
     prompt_len = min(prompt_len, len(labels))
     labels[:prompt_len] = [IGNORE_INDEX] * prompt_len
 
     return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
 
-def build_task_A_examples(
-    rows: List[Dict[str, Any]],
-    tok: AutoTokenizer,
-    max_len: int,
-    use_chat_template: bool
-) -> List[Dict[str, Any]]:
-    eos = tok.eos_token or ""
-    out = []
-    for ex in rows:
-        text = ex["text"]
-        label = int(ex["label"])
 
-        prompt = build_prompt_A(text)
-        target = build_target_A(label, eos=eos)
-        toks = tokenize_with_masking(tok, prompt, target, max_len, use_chat_template)
+def count_tasks(ds: Dataset) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for t in ds["task"]:
+        counts[t] = counts.get(t, 0) + 1
+    return counts
 
-        toks["task"] = "A"
-        toks["gold_label"] = label
-        out.append(toks)
-    return out
 
-def build_task_C_examples(
-    rows: List[Dict[str, Any]],
-    tok: AutoTokenizer,
-    max_len: int,
-    use_chat_template: bool
-) -> List[Dict[str, Any]]:
-    eos = tok.eos_token or ""
-    out = []
-    for ex in rows:
-        label = int(ex["label"])
-        rephrase = ex.get("rephrase", None)
-
-        if label == 1 and rephrase:
-            text = ex["text"]
-            prompt = build_prompt_C(text)
-            target = build_target_C(rephrase, eos=eos)
-            toks = tokenize_with_masking(tok, prompt, target, max_len, use_chat_template)
-
-            toks["task"] = "C"
-            toks["gold_label"] = 1
-            out.append(toks)
-    return out
-
-def stratified_split_train_val(
-    rows: List[Dict[str, Any]],
-    val_ratio: float,
-    seed: int
-) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    rng = random.Random(seed)
-
-    pos = [r for r in rows if int(r["label"]) == 1]
-    neg = [r for r in rows if int(r["label"]) == 0]
-
-    rng.shuffle(pos)
-    rng.shuffle(neg)
-
-    n_pos_val = int(round(len(pos) * val_ratio))
-    n_neg_val = int(round(len(neg) * val_ratio))
-
-    val_rows = pos[:n_pos_val] + neg[:n_neg_val]
-    train_rows = pos[n_pos_val:] + neg[n_neg_val:]
-
-    rng.shuffle(train_rows)
-    rng.shuffle(val_rows)
-    return train_rows, val_rows
-
-def prepare_datasets(
-    train_jsonl: str,
-    test_jsonl: str,
+def prepare_from_multitask_jsonl(
+    jsonl_dir: str,
     model_name: str,
     out_dir: str,
-    val_ratio: float = 0.1,
     max_len: int = 1024,
     use_chat_template: bool = True,
-    seed: int = 42
 ) -> None:
     tok = AutoTokenizer.from_pretrained(model_name, use_fast=True)
 
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
 
-    train_rows_all = load_jsonl(train_jsonl)
-    test_rows = load_jsonl(test_jsonl)
+    eos = tok.eos_token or ""
 
-    train_rows, val_rows = stratified_split_train_val(train_rows_all, val_ratio, seed)
+    jsonl_path = Path(jsonl_dir)
+    train_rows = load_jsonl(str(jsonl_path / "train.jsonl"))
+    val_rows = load_jsonl(str(jsonl_path / "validation.jsonl"))
+    test_rows = load_jsonl(str(jsonl_path / "test.jsonl"))
 
-    train_A = build_task_A_examples(train_rows, tok, max_len, use_chat_template)
-    train_C = build_task_C_examples(train_rows, tok, max_len, use_chat_template)
+    def build_tokenized(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        for ex in rows:
+            task = ex["task"]
 
-    val_A = build_task_A_examples(val_rows, tok, max_len, use_chat_template)
-    val_C = build_task_C_examples(val_rows, tok, max_len, use_chat_template)
+            if task == "A":
+                text = ex["text"]
+                label = int(ex["label"])
+                prompt = build_prompt_A(text)
+                target = build_target_A(label, eos=eos)
+                toks = tokenize_with_masking(tok, prompt, target, max_len, use_chat_template)
+                toks["task"] = "A"
+                toks["gold_label"] = label
+                out.append(toks)
 
-    test_A = build_task_A_examples(test_rows, tok, max_len, use_chat_template)
+            elif task == "C":
+                label = int(ex.get("label", 0))
+                rephrase = ex.get("rephrase", None)
+                if label == 1 and rephrase:
+                    text = ex["text"]
+                    prompt = build_prompt_C(text)
+                    target = build_target_C(rephrase, eos=eos)
+                    toks = tokenize_with_masking(tok, prompt, target, max_len, use_chat_template)
+                    toks["task"] = "C"
+                    toks["gold_label"] = 1
+                    out.append(toks)
 
-    ds_train = Dataset.from_list(train_A + train_C)
-    ds_val = Dataset.from_list(val_A + val_C)
-    ds_test = Dataset.from_list(test_A)
+            else:
+                raise ValueError(f"Unknown task: {task}")
+
+        return out
+
+    ds_train = Dataset.from_list(build_tokenized(train_rows))
+    ds_val = Dataset.from_list(build_tokenized(val_rows))
+    ds_test = Dataset.from_list(build_tokenized(test_rows))
 
     ds = DatasetDict(train=ds_train, validation=ds_val, test=ds_test)
 
@@ -193,20 +161,22 @@ def prepare_datasets(
     print("Test counts:", count_tasks(ds_test))
     print("Saved to:", out_path.resolve())
 
-def count_tasks(ds: Dataset) -> Dict[str, int]:
-    counts = {}
-    for t in ds["task"]:
-        counts[t] = counts.get(t, 0) + 1
-    return counts
+
+def main() -> None:
+    jsonl_dir = "phi3_multitask"
+    model_name = "microsoft/Phi-3-mini-4k-instruct"
+    out_dir = "phi3_dataset"
+    max_len = 1024
+    use_chat_template = True
+
+    prepare_from_multitask_jsonl(
+        jsonl_dir=jsonl_dir,
+        model_name=model_name,
+        out_dir=out_dir,
+        max_len=max_len,
+        use_chat_template=use_chat_template,
+    )
+
 
 if __name__ == "__main__":
-    prepare_datasets(
-        train_jsonl="isarcasmeval_train.jsonl",
-        test_jsonl="isarcasmeval_test.jsonl",
-        model_name="microsoft/Phi-3-mini-4k-instruct",
-        out_dir="phi3_dataset",
-        val_ratio=0.1,
-        max_len=1024,
-        use_chat_template=True,
-        seed=42
-    )
+    main()
