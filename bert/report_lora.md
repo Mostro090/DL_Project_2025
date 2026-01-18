@@ -1,7 +1,7 @@
 # Report Analisi Parametri LoRA: ModernBERT
 
 **Modello Base:** `answerdotai/ModernBERT-base`
-**Target Modules:** `["Wqkv", "Wo"]`
+**Target Modules:** `['Wqkv', 'Wo']`
 **LoRA Rank (r):** 8
 
 ---

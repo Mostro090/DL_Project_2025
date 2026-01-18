@@ -1,7 +1,7 @@
 # Report Valutazione Sarcasmo
 
 **Modello:** `modernbert_o1`  
-**File Analizzato:** `o1:test (thr=0.48)`  
+**File Analizzato:** `o1:test (thr=0.50)`  
 **Totale Esempi Validi:** 1400
 
 ---

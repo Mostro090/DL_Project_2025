@@ -14,10 +14,11 @@ def generate_modernbert_lora_report():
         return
 
     print("--- Applicazione Configurazione LoRA ---")
+    target_modules = ["Wqkv", "Wo"]
     lora_config = LoraConfig(
         r=8,
         lora_alpha=32,
-        target_modules=["Wqkv", "Wo"],
+        target_modules=target_modules,
         lora_dropout=0.1,
         bias="none",
         task_type="FEATURE_EXTRACTION"
@@ -45,7 +46,7 @@ def generate_modernbert_lora_report():
     md_content = f"""# Report Analisi Parametri LoRA: ModernBERT
 
 **Modello Base:** `{model_id}`
-**Target Modules:** `["Wqkv", "Wo"]`
+**Target Modules:** `{target_modules}`
 **LoRA Rank (r):** {lora_config.r}
 
 ---

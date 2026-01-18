@@ -13,35 +13,36 @@ model:
 peft:
   enable: true
   lora_r: 16            
-  lora_alpha: 32         
-  lora_dropout: 0.05
-  target_modules: ["Wqkv", "Wo"] 
+  lora_alpha: 32      
+  lora_dropout: 0.1     
+  target_modules: ["Wqkv", "Wo","Wi"] 
 
 training:
-  output_dir: "../results/runs/modernbert_o2"
-  epochs: 6            
+  output_dir: "../results/runs/modernbert_o2_four"
+  epochs: 10
   
   batch_size: 16
   mix_strategy: "deterministic_concat"
   
-  lr: 2.0e-4       
+  lr: 2.0e-4            
   weight_decay: 0.01
-  warmup_ratio: 0.1      
-  grad_clip: 1.0
+  warmup_ratio: 0.1
   
-  lambda_a: 1.0         
-  lambda_b: 0.5          
+  pos_weight: 3  
   
-  margin: 5.0           
+  grad_clip: 1.0        
   
-  pos_weight_a: 2.0     
+  lambda_a: 1.0
+  lambda_b: 0.5
   
+  margin: 2.0           
+    
   device: "cuda"
-  num_workers: 2    
+  num_workers: 2
 
 quantization:
   enable: false
   load_in_4bit: false
   load_in_8bit: false
   bnb_4bit_quant_type: "nf4"
-  torch_dtype: "float16"
+  torch_dtype: "float32"

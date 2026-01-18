@@ -1,8 +1,8 @@
 # Report Valutazione Sarcasmo
 
-**Modello:** `modernbert_o2_ablation`  
+**Modello:** `modernbert_o2_ablation_weight`  
 **File Analizzato:** `o2:test`  
-**Soglia Utilizzata:** **0.75**
+**Soglia Utilizzata:** **0.50**
 
 ---
 
@@ -10,10 +10,10 @@
 
 | Metrica | Valore |
 | :--- | :--- |
-| **Accuracy** | **0.8493** |
-| **F1-Score** | **0.1725** |
-| **Precision** | 0.4000 |
-| **Recall** | 0.1100 |
+| **Accuracy** | **0.8029** |
+| **F1-Score** | **0.2660** |
+| **Precision** | 0.2841 |
+| **Recall** | 0.2500 |
 
 ---
 
@@ -22,10 +22,10 @@
 ```text
                 precision    recall  f1-score   support
 
-Non Sarcastic        0.87      0.97      0.92      1200
-Sarcastic            0.40      0.11      0.17       200
+Non Sarcastic        0.88      0.90      0.89      1200
+Sarcastic            0.28      0.25      0.27       200
 
-accuracy                             0.85      1400
-macro avg            0.63      0.54      0.54      1400
-weighted avg         0.80      0.85      0.81      1400
+accuracy                             0.80      1400
+macro avg            0.58      0.57      0.58      1400
+weighted avg         0.79      0.80      0.80      1400
 ```

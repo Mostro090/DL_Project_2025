@@ -13,13 +13,13 @@ from transformers import AutoModel, AutoTokenizer, DataCollatorWithPadding
 
 IGNORE_IDX = -100
 
-MODEL_DIR = Path("../runs/modernbert_o2_second")
+MODEL_DIR = Path("../runs/modernbert_o2")
 DATASET_DIR = Path("../../data/tokenized/o2")
 SPLIT = "test"
 BATCH_SIZE = 32
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-THRESHOLD = 0.75
-REPORT_OUT = "report_test_modernbert_o2_second.md"
+THRESHOLD = 0.5
+REPORT_OUT = "report_test_modernbert_o2_ano.md"
 
 @dataclass
 class BinaryMetrics:
