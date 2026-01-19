@@ -1,19 +1,14 @@
-import math
 import random
 import argparse
 from dataclasses import dataclass
-from typing import Dict, List, Any, Optional, Iterable
+from typing import Dict, List, Any, Optional
 
 import yaml
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from datasets import load_from_disk
-from transformers import (
-    AutoTokenizer,
-    AutoModelForCausalLM,
-    get_linear_schedule_with_warmup,
-)
+from transformers import AutoTokenizer, AutoModelForCausalLM, get_linear_schedule_with_warmup
 from peft import LoraConfig, get_peft_model
 from tqdm import tqdm
 
@@ -28,24 +23,12 @@ def load_config(path: str) -> Dict[str, Any]:
     return cfg
 
 
-# -------------------------
-# Label token utilities
-# -------------------------
 def get_single_token_id(tok, s_list=("A", " A")):
-    chosen = None
-    chosen_ids = None
     for s in s_list:
         ids = tok.encode(s, add_special_tokens=False)
         if len(ids) == 1:
-            chosen = s
-            chosen_ids = ids[0]
-            break
-    if chosen_ids is None:
-        raise ValueError(
-            f"Could not find single-token variant for {s_list}. Got: "
-            f"{[(s, tok.encode(s, add_special_tokens=False)) for s in s_list]}"
-        )
-    return chosen_ids, chosen
+            return ids[0], s
+    raise ValueError(f"Could not find single-token variant for {s_list}. Got: {[(s, tok.encode(s, add_special_tokens=False)) for s in s_list]}")
 
 
 def get_label_token_ids(tok):
@@ -54,19 +37,13 @@ def get_label_token_ids(tok):
     return A_id, B_id, A_str, B_str
 
 
-# -------------------------
-# Collators
-# -------------------------
 @dataclass
 class DataCollatorCausalLM:
     tokenizer: AutoTokenizer
     ignore_index: int = IGNORE_INDEX
 
     def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-        pad_id = self.tokenizer.pad_token_id
-        if pad_id is None:
-            pad_id = self.tokenizer.eos_token_id
-
+        pad_id = self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
         max_len = max(len(f["input_ids"]) for f in features)
 
         def pad_list(x, pad_value):
@@ -112,13 +89,9 @@ class DataCollatorPairwiseD:
             "attention_mask_s": attn_s,
             "input_ids_r": input_ids_r,
             "attention_mask_r": attn_r,
-            "task": ["D"] * len(features),
         }
 
 
-# -------------------------
-# Losses / scoring
-# -------------------------
 def weighted_causal_lm_loss(
     logits: torch.Tensor,
     labels: torch.Tensor,
@@ -126,13 +99,8 @@ def weighted_causal_lm_loss(
     pos_weight: float,
     ignore_index: int = IGNORE_INDEX,
 ) -> torch.Tensor:
-    """
-    CE token-level solo sui token target (labels != ignore_index), con opzionale pos_weight
-    applicato SOLO agli esempi positivi di Task A.
-    """
     shift_logits = logits[..., :-1, :].contiguous()
     shift_labels = labels[..., 1:].contiguous()
-
     B, Lm1, V = shift_logits.shape
 
     loss_tok = F.cross_entropy(
@@ -143,8 +111,6 @@ def weighted_causal_lm_loss(
     ).view(B, Lm1)
 
     active = (shift_labels != ignore_index).float()
-
-    # pesi per esempio
     w = torch.ones((B,), device=logits.device, dtype=loss_tok.dtype)
 
     if gold_labels is not None:
@@ -160,22 +126,18 @@ def weighted_causal_lm_loss(
 
 
 def score_delta_ab(model, input_ids, attention_mask, A_id, B_id):
-    """
-    Delta = logp(A) - logp(B) sul NEXT token dopo il prompt.
-    Qui prendiamo logits dell'ultima posizione "attiva" del prompt.
-    """
     out = model(input_ids=input_ids, attention_mask=attention_mask)
-    lengths = attention_mask.sum(dim=1)  # [B]
+    lengths = attention_mask.sum(dim=1)
     last_pos = (lengths - 1).clamp_min(0)
     last_logits = out.logits[torch.arange(out.logits.size(0), device=out.logits.device), last_pos]
     logp = torch.log_softmax(last_logits, dim=-1)
-    return logp[:, A_id] - logp[:, B_id]  # [B]
+    return logp[:, A_id] - logp[:, B_id]
 
 
 @torch.no_grad()
 def eval_taskA_score(model, tokenizer, ds_val_A, batch_size: int = 8, tau: float = 0.0):
     device = model.device
-    A_id, B_id, A_str, B_str = get_label_token_ids(tokenizer)
+    A_id, B_id, _, _ = get_label_token_ids(tokenizer)
 
     y_true, y_pred = [], []
     n = len(ds_val_A)
@@ -186,18 +148,15 @@ def eval_taskA_score(model, tokenizer, ds_val_A, batch_size: int = 8, tau: float
         labels_col = batch["labels"]
         gold = batch["gold_label"] if "gold_label" in batch else batch["label"]
 
-        # estrai solo prompt (token con label = IGNORE_INDEX)
         prompts = []
         for ids, labs in zip(input_ids_col, labels_col):
-            p = [tid for tid, lab in zip(ids, labs) if lab == IGNORE_INDEX]
-            prompts.append(p)
+            prompts.append([tid for tid, lab in zip(ids, labs) if lab == IGNORE_INDEX])
 
         max_len = max(len(p) for p in prompts)
         pad_id = tokenizer.pad_token_id or tokenizer.eos_token_id
 
-        input_ids, attn, lengths = [], [], []
+        input_ids, attn = [], []
         for p in prompts:
-            lengths.append(len(p))
             pad_len = max_len - len(p)
             input_ids.append(p + [pad_id] * pad_len)
             attn.append([1] * len(p) + [0] * pad_len)
@@ -221,9 +180,6 @@ def eval_taskA_score(model, tokenizer, ds_val_A, batch_size: int = 8, tau: float
     return {"precision": precision, "recall": recall, "f1": f1}
 
 
-# -------------------------
-# Main training
-# -------------------------
 def main(cfg: Dict[str, Any]):
     dataset_dir = cfg["dataset_dir"]
     model_name = cfg["model_name"]
@@ -239,20 +195,17 @@ def main(cfg: Dict[str, Any]):
     weight_decay = float(cfg.get("weight_decay", 0.0))
     max_grad_norm = float(cfg.get("max_grad_norm", 1.0))
 
-    # Sampling: probabilità di pescare microbatch A (il resto D)
     a_frac = float(cfg.get("a_frac", 0.7))
-
-    # Eval
     eval_every = int(cfg.get("eval_every", 200))
     eval_batch_size = int(cfg.get("eval_batch_size", 8))
-    tau = float(cfg.get("tau", 0.0))
 
-    # Task A weighting (opzionale)
-    pos_weight = float(cfg.get("pos_weight", 1.0))  # se non ti serve, metti 1.0
+    pos_weight = float(cfg.get("pos_weight", 1.0))
+    lambda_a = float(cfg.get("lambda_a", 1.0))
+    lambda_c = float(cfg.get("lambda_c", 1.0))
 
-    # Task D params
-    lambda_d = float(cfg.get("lambda_d", 0.5))
+    lambda_d = float(cfg.get("lambda_d", cfg.get("lambda_D", 0.5)))
     margin = float(cfg.get("margin", 0.5))
+    tau = 0.0
 
     perf = cfg.get("performance", {})
     grad_ckpt = bool(perf.get("gradient_checkpointing", True))
@@ -273,27 +226,19 @@ def main(cfg: Dict[str, Any]):
     train_ds = ds["train"]
     val_ds = ds["validation"]
 
-    # Split validation A
     if "task" in val_ds.column_names:
         val_A = val_ds.filter(lambda x: x["task"] == "A")
     else:
         val_A = val_ds
 
-    # Tokenizer
     tok = AutoTokenizer.from_pretrained(model_name, use_fast=True)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
 
-    # Print chosen label tokens (debug)
     A_id, B_id, A_str, B_str = get_label_token_ids(tok)
     print("Using label tokens:", {"A": A_str, "B": B_str, "A_id": A_id, "B_id": B_id})
 
-    # Model
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        torch_dtype="auto",
-        device_map="auto",
-    )
+    model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype="auto", device_map="auto")
 
     if grad_ckpt:
         model.gradient_checkpointing_enable()
@@ -310,24 +255,16 @@ def main(cfg: Dict[str, Any]):
     model.print_trainable_parameters()
     model.train()
 
-    # Split train into A and D
     if "task" not in train_ds.column_names:
-        raise ValueError("Train dataset must have a 'task' column with values 'A'/'D'.")
+        raise ValueError("Train dataset must have a 'task' column.")
 
     train_A = train_ds.filter(lambda x: x["task"] == "A")
-    train_D = train_ds.filter(lambda x: x["task"] == "D")
+    train_D = train_ds.filter(lambda x: x["task"] == "D") if "D" in set(train_ds["task"]) else None
 
     if len(train_A) == 0:
         raise ValueError("No Task A examples found in train split.")
-    if len(train_D) == 0:
-        raise ValueError("No Task D examples found in train split. (Need pairwise data.)")
 
-    print(f"Train sizes: A={len(train_A)} D={len(train_D)} | a_frac={a_frac}")
-
-    # Loaders
     collator_A = DataCollatorCausalLM(tok)
-    collator_D = DataCollatorPairwiseD(tok)
-
     train_loader_A = DataLoader(
         train_A,
         batch_size=batch_size,
@@ -337,21 +274,24 @@ def main(cfg: Dict[str, Any]):
         pin_memory=True,
         drop_last=True,
     )
-    train_loader_D = DataLoader(
-        train_D,
-        batch_size=batch_size,
-        shuffle=True,
-        collate_fn=collator_D,
-        num_workers=0,
-        pin_memory=True,
-        drop_last=True,
-    )
+
+    train_loader_D = None
+    collator_D = None
+    if train_D is not None and len(train_D) > 0 and all(k in train_D.column_names for k in ["input_ids_s", "attention_mask_s", "input_ids_r", "attention_mask_r"]):
+        collator_D = DataCollatorPairwiseD(tok)
+        train_loader_D = DataLoader(
+            train_D,
+            batch_size=batch_size,
+            shuffle=True,
+            collate_fn=collator_D,
+            num_workers=0,
+            pin_memory=True,
+            drop_last=True,
+        )
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     warmup_steps = int(max_steps * warmup_ratio)
-    scheduler = get_linear_schedule_with_warmup(
-        optimizer, num_warmup_steps=warmup_steps, num_training_steps=max_steps
-    )
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps, num_training_steps=max_steps)
 
     device = model.device
     optimizer.zero_grad()
@@ -362,13 +302,16 @@ def main(cfg: Dict[str, Any]):
     micro_step = 0
 
     iterA = iter(train_loader_A)
-    iterD = iter(train_loader_D)
+    iterD = iter(train_loader_D) if train_loader_D is not None else None
+
+    use_pairwise = train_loader_D is not None
 
     while update_step < max_steps:
         micro_step += 1
 
-        # scegli task per questo micro-step
-        use_A = (random.random() < a_frac)
+        use_A = True
+        if use_pairwise:
+            use_A = (random.random() < a_frac)
 
         if use_A:
             try:
@@ -383,14 +326,7 @@ def main(cfg: Dict[str, Any]):
             gold = batch.get("gold_label", None)
 
             out = model(input_ids=input_ids, attention_mask=attention_mask)
-
-            loss_A = weighted_causal_lm_loss(
-                logits=out.logits,
-                labels=labels,
-                gold_labels=gold,
-                pos_weight=pos_weight,
-                ignore_index=IGNORE_INDEX,
-            )
+            loss_A = weighted_causal_lm_loss(out.logits, labels, gold, pos_weight, IGNORE_INDEX) * float(lambda_a)
             loss = loss_A / grad_accum
 
         else:
@@ -408,9 +344,8 @@ def main(cfg: Dict[str, Any]):
             delta_s = score_delta_ab(model, ids_s, attn_s, A_id, B_id)
             delta_r = score_delta_ab(model, ids_r, attn_r, A_id, B_id)
 
-            # MarginRankingLoss style: want delta_s >= delta_r + margin
-            loss_D = torch.relu(margin - (delta_s - delta_r)).mean()
-            loss = (lambda_d * loss_D) / grad_accum
+            loss_D = torch.relu(float(margin) - (delta_s - delta_r)).mean() * float(lambda_d)
+            loss = loss_D / grad_accum
 
         loss.backward()
         running_loss += loss.item()
@@ -423,7 +358,7 @@ def main(cfg: Dict[str, Any]):
 
             update_step += 1
             pbar.update(1)
-            pbar.set_postfix({"loss": f"{running_loss:.4f}", "tau": f"{tau:.2f}", "a_frac": f"{a_frac:.2f}"})
+            pbar.set_postfix({"loss": f"{running_loss:.4f}", "a_frac": f"{a_frac:.2f}", "tau": f"{tau:.2f}"})
             running_loss = 0.0
 
             if update_step % eval_every == 0 or update_step == max_steps:
@@ -431,8 +366,7 @@ def main(cfg: Dict[str, Any]):
                 metrics = eval_taskA_score(model, tok, val_A, batch_size=eval_batch_size, tau=tau)
                 print(
                     f"\n[VAL @ {update_step}] "
-                    f"P={metrics['precision']:.4f} R={metrics['recall']:.4f} F1={metrics['f1']:.4f} "
-                    f"(tau={tau:.2f} pos_weight={pos_weight:.2f} lambda_d={lambda_d:.2f} margin={margin:.2f})\n"
+                    f"P={metrics['precision']:.4f} R={metrics['recall']:.4f} F1={metrics['f1']:.4f}\n"
                 )
                 model.train()
 
@@ -451,6 +385,5 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="config.yaml")
     args = parser.parse_args()
-
     cfg = load_config(args.config)
     main(cfg)
