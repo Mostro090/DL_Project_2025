@@ -2,7 +2,7 @@
 
 **Modello Adapter:** `step_400`  
 **File Analizzato:** `phi3_dataset:test`  
-**Soglia (Logits A-B):** **1.10**
+**Soglia (Logits A-B):** **0.00**
 
 ---
 
@@ -10,18 +10,18 @@
 
 | Metrica | Valore |
 | :--- | :--- |
-| **Accuracy** | **0.8850** |
-| **F1-Score** | **0.5818** |
-| **Precision** | 0.6054 |
-| **Recall** | 0.5600 |
+| **Accuracy** | **0.8807** |
+| **F1-Score** | **0.5617** |
+| **Precision** | 0.5912 |
+| **Recall** | 0.5350 |
 
 ---
 
 ## Matrice di Confusione
 
 ```text
-[[1127  73]
- [88  112]]
+[[1126  74]
+ [93  107]]
 ```
 
 ## Report Dettagliato
@@ -29,10 +29,10 @@
 ```text
                 precision    recall  f1-score   support
 
-Non Sarcastic        0.93      0.94      0.93      1200
-Sarcastic            0.61      0.56      0.58       200
+Non Sarcastic        0.92      0.94      0.93      1200
+Sarcastic            0.59      0.54      0.56       200
 
-accuracy                             0.89      1400
-macro avg            0.77      0.75      0.76      1400
-weighted avg         0.88      0.89      0.88      1400
+accuracy                             0.88      1400
+macro avg            0.76      0.74      0.75      1400
+weighted avg         0.88      0.88      0.88      1400
 ```

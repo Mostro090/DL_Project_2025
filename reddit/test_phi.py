@@ -12,7 +12,7 @@ from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftConfig, PeftModel
 
-ADAPTER_DIR = None # se vuoi testare il fine - tuned metti "../results/runs/phi3_o1/step_400"
+ADAPTER_DIR = None # se vuoi testare il fine - tuned metti "../results/runs/phi3_contrastive/step_200" per miglior config
 REDDIT_JSONL = Path("./reddit_sample_20k.jsonl")  
 MODEL_ID_FALLBACK = "microsoft/Phi-3-mini-4k-instruct"
 

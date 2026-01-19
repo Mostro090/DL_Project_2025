@@ -2,7 +2,7 @@ seed: 42
 
 dataset_dir: "../data/phi3_dataset"
 model_name: "microsoft/Phi-3-mini-4k-instruct"
-output_dir: "../runs/phi3_o2"
+output_dir: "../results/runs/phi3_o2_altro"
 
 max_steps: 1000
 batch_size: 2

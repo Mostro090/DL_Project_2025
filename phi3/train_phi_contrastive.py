@@ -201,9 +201,8 @@ def main(cfg: Dict[str, Any]):
 
     pos_weight = float(cfg.get("pos_weight", 1.0))
     lambda_a = float(cfg.get("lambda_a", 1.0))
-    lambda_c = float(cfg.get("lambda_c", 1.0))
 
-    lambda_d = float(cfg.get("lambda_d", cfg.get("lambda_D", 0.5)))
+    lambda_b = float(cfg.get("lambda_b", cfg.get("lambda_b", 0.5)))
     margin = float(cfg.get("margin", 0.5))
     tau = 0.0
 
@@ -344,7 +343,7 @@ def main(cfg: Dict[str, Any]):
             delta_s = score_delta_ab(model, ids_s, attn_s, A_id, B_id)
             delta_r = score_delta_ab(model, ids_r, attn_r, A_id, B_id)
 
-            loss_D = torch.relu(float(margin) - (delta_s - delta_r)).mean() * float(lambda_d)
+            loss_D = torch.relu(float(margin) - (delta_s - delta_r)).mean() * float(lambda_b)
             loss = loss_D / grad_accum
 
         loss.backward()
