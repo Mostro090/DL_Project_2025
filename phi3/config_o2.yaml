@@ -16,6 +16,6 @@ a_frac: 0.7
 eval_every: 200
 eval_batch_size: 8
 
-pos_weight: 0.0    
+pos_weight: 3.0    
 lambda_a: 1.0       
 lambda_c: 0.5      

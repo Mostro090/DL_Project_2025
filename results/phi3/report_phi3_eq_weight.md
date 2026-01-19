@@ -2,7 +2,7 @@
 
 **Modello Adapter:** `step_400`  
 **File Analizzato:** `phi3_dataset:test`  
-**Soglia (Logits A-B):** **0.25**
+**Soglia (Logits A-B):** **1.10**
 
 ---
 

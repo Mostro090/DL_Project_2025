@@ -26,7 +26,7 @@ elif torch.backends.mps.is_available():
     DEVICE = "mps"
 else:
     DEVICE = "cpu"
-THRESHOLD = 0.25
+THRESHOLD = 1.10
 REPORT_OUT = "report_phi3_o2.md"
 IGNORE_IDX = -100
 
